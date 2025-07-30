@@ -16,6 +16,36 @@
         android:layout_toEndOf="@id/attachmentButton"
         android:layout_toRightOf="@id/attachmentButton" />
 
+    <!-- Container for the buttons to avoid layout conflicts -->
+    <FrameLayout
+        android:id="@+id/buttonContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:layout_centerVertical="true">
+
+        <ImageButton
+            android:id="@id/messageSendButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@id/voiceRecordButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="visible" />
+
+    </FrameLayout>
+
+    <Space
+        android:id="@id/sendButtonSpace"
+        android:layout_width="8dp"
+        android:layout_height="0dp"
+        android:layout_toLeftOf="@+id/buttonContainer"
+        android:layout_toStartOf="@+id/buttonContainer" />
+
     <EditText
         android:id="@id/messageInput"
         android:layout_width="match_parent"
@@ -25,21 +55,8 @@
         android:layout_toLeftOf="@id/sendButtonSpace"
         android:layout_toRightOf="@id/attachmentButtonSpace"
         android:layout_toStartOf="@id/sendButtonSpace"
-        android:inputType="textAutoCorrect|textAutoComplete|textMultiLine|textCapSentences" />
-
-    <Space
-        android:id="@id/sendButtonSpace"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_toLeftOf="@id/messageSendButton"
-        android:layout_toStartOf="@id/messageSendButton" />
-
-    <ImageButton
-        android:id="@id/messageSendButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentEnd="true"
-        android:layout_alignParentRight="true"
-        android:layout_centerVertical="true" />
+        android:inputType="textAutoCorrect|textAutoComplete|textMultiLine|textCapSentences"
+        android:minHeight="48dp"
+        android:padding="12dp" />
 
 </merge>

@@ -13,7 +13,9 @@
     <string name="sample_title_holder">Custom view holder</string>
     <string name="sample_subtitle_holder">Custom view holder to extend default behaviour for a new features</string>
     <string name="sample_title_custom_content">Custom content type</string>
-    <string name="sample_subtitle_custom_content">Custom message content on the example of voice message</string>
+    <string name="sample_title_custom_content_voice">Custom content type with voice</string>
+    <string name="sample_subtitle_custom_content">Custom message content on the example of voice message new button</string>
+    <string name="sample_subtitle_custom_content_voice">Custom message content on the example of voice message new button</string>
 
     <string name="hint_enter_a_message">Type a message…</string>
     <string name="on_log_click_message">Your custom long click handler</string>

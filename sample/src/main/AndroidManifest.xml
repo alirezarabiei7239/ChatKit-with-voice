@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.stfalcon.chatkit.sample">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -31,6 +30,7 @@
         <activity android:name=".features.demo.custom.layout.CustomLayoutMessagesActivity" />
         <activity android:name=".features.demo.custom.holder.CustomHolderDialogsActivity" />
         <activity android:name=".features.demo.custom.holder.CustomHolderMessagesActivity" />
+        <activity android:name=".features.demo.custom.media.VoiceMessagesActivity" />
         <activity
             android:name=".features.demo.custom.media.CustomMediaMessagesActivity"
             android:theme="@style/BlueTheme" />
