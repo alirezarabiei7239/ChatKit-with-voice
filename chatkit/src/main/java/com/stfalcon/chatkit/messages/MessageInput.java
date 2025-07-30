@@ -16,19 +16,36 @@
 
 package com.stfalcon.chatkit.messages;
 
+import android.Manifest;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.app.Activity;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.media.ToneGenerator;
 import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.animation.Animation;
+import android.view.animation.ScaleAnimation;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.RelativeLayout;
 import android.widget.Space;
 import android.widget.TextView;
+import android.widget.Toast;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import androidx.core.view.ViewCompat;
 
@@ -41,19 +58,36 @@ import java.lang.reflect.Field;
  */
 @SuppressWarnings({"WeakerAccess", "unused"})
 public class MessageInput extends RelativeLayout
-        implements View.OnClickListener, TextWatcher, View.OnFocusChangeListener {
+        implements View.OnClickListener, TextWatcher, View.OnFocusChangeListener, View.OnTouchListener {
 
     protected EditText messageInput;
     protected ImageButton messageSendButton;
+    protected ImageButton voiceRecordButton;
     protected ImageButton attachmentButton;
     protected Space sendButtonSpace, attachmentButtonSpace;
 
     private CharSequence input;
     private InputListener inputListener;
     private AttachmentsListener attachmentsListener;
+    private VoiceRecordingListener voiceRecordingListener;
+    
+    // Animation, sound effects, and haptic feedback
+    private ScaleAnimation pulseAnimation;
+    private ToneGenerator toneGenerator;
+    private Vibrator vibrator;
+    private MediaPlayer beepPlayer;
+    
+    // Recording duration tracking
+    private long recordingStartTime;
+    private static final int MIN_RECORDING_DURATION_MS = 1000; // 1 second minimum
+    
+    // Permission handling
+    private static final int PERMISSIONS_REQUEST_RECORD_AUDIO = 1001;
+    private boolean permissionRequested = false;
     private boolean isTyping;
     private TypingListener typingListener;
     private int delayTypingStatusMillis;
+    private boolean isRecordingVoice = false;
     private Runnable typingTimerRunnable = new Runnable() {
         @Override
         public void run() {
@@ -73,6 +107,12 @@ public class MessageInput extends RelativeLayout
     public MessageInput(Context context, AttributeSet attrs) {
         super(context, attrs);
         init(context, attrs);
+    }
+    
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        cleanup();
     }
 
     public MessageInput(Context context, AttributeSet attrs, int defStyleAttr) {
@@ -99,6 +139,15 @@ public class MessageInput extends RelativeLayout
     }
 
     /**
+     * Sets callback for voice recording functionality.
+     *
+     * @param voiceRecordingListener voice recording callback
+     */
+    public void setVoiceRecordingListener(VoiceRecordingListener voiceRecordingListener) {
+        this.voiceRecordingListener = voiceRecordingListener;
+    }
+
+    /**
      * Returns EditText for messages input
      *
      * @return EditText
@@ -114,6 +163,15 @@ public class MessageInput extends RelativeLayout
      */
     public ImageButton getButton() {
         return messageSendButton;
+    }
+
+    /**
+     * Returns voice record button
+     *
+     * @return ImageButton
+     */
+    public ImageButton getVoiceButton() {
+        return voiceRecordButton;
     }
 
     @Override
@@ -139,13 +197,20 @@ public class MessageInput extends RelativeLayout
     public void onTextChanged(CharSequence s, int start, int count, int after) {
         input = s;
         messageSendButton.setEnabled(input.length() > 0);
+        
+        // Switch between voice and send button based on text input
         if (s.length() > 0) {
+            // Show send button when there's text
+            showSendButton();
             if (!isTyping) {
                 isTyping = true;
                 if (typingListener != null) typingListener.onStartTyping();
             }
             removeCallbacks(typingTimerRunnable);
             postDelayed(typingTimerRunnable, delayTypingStatusMillis);
+        } else {
+            // Show voice button when there's no text
+            showVoiceButton();
         }
     }
 
@@ -174,12 +239,286 @@ public class MessageInput extends RelativeLayout
         lastFocus = hasFocus;
     }
 
+    @Override
+    public boolean onTouch(View v, MotionEvent event) {
+        Log.d("MessageInput", "onTouch called for view: " + v.getId());
+        if (v.getId() == R.id.voiceRecordButton) {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    Log.d("MessageInput", "ACTION_DOWN - Starting voice recording");
+                    // Start voice recording
+                    startVoiceRecording();
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    Log.d("MessageInput", "ACTION_UP/CANCEL - Stopping voice recording");
+                    // Stop voice recording and send
+                    stopVoiceRecording();
+                    return true;
+            }
+        }
+        return false;
+    }
+
     private boolean onSubmit() {
         return inputListener != null && inputListener.onSubmit(input);
     }
 
     private void onAddAttachments() {
         if (attachmentsListener != null) attachmentsListener.onAddAttachments();
+    }
+
+    private void startVoiceRecording() {
+        Log.d("MessageInput", "startVoiceRecording called. Listener: " + (voiceRecordingListener != null) + ", isRecording: " + isRecordingVoice);
+        
+        // Check permissions first
+        if (!checkRecordingPermission()) {
+            Log.w("MessageInput", "Recording permission not granted, requesting...");
+            requestRecordingPermission();
+            return;
+        }
+        
+        if (voiceRecordingListener != null && !isRecordingVoice) {
+            isRecordingVoice = true;
+            
+            // Record start time for duration validation
+            recordingStartTime = System.currentTimeMillis();
+            Log.d("MessageInput", "Recording start time: " + recordingStartTime);
+            
+            // Play start beep sound + haptic feedback
+            playBeepSound();
+            performHapticFeedback();
+            
+            // Start pulsing animation
+            startRecordingAnimation();
+            
+            voiceRecordingListener.onStartRecording();
+            Log.d("MessageInput", "Voice recording started with beep and vibration");
+        } else {
+            Log.w("MessageInput", "Cannot start recording - listener: " + (voiceRecordingListener != null) + ", already recording: " + isRecordingVoice);
+        }
+    }
+
+    private void stopVoiceRecording() {
+        Log.d("MessageInput", "stopVoiceRecording called. Listener: " + (voiceRecordingListener != null) + ", isRecording: " + isRecordingVoice);
+        if (voiceRecordingListener != null && isRecordingVoice) {
+            isRecordingVoice = false;
+            
+            // Calculate recording duration
+            long recordingEndTime = System.currentTimeMillis();
+            long recordingDuration = recordingEndTime - recordingStartTime;
+            Log.d("MessageInput", "Recording duration: " + recordingDuration + "ms");
+            
+            // Stop pulsing animation
+            stopRecordingAnimation();
+            
+            // Play stop beep sound + haptic feedback
+            playBeepSound();
+            performHapticFeedback();
+            
+            // Check if recording is long enough
+            if (recordingDuration < MIN_RECORDING_DURATION_MS) {
+                // Recording too short - show toast and don't send
+                Log.w("MessageInput", "Recording too short (" + recordingDuration + "ms), not sending");
+                showRecordingTooShortToast();
+                // Don't call onStopRecording() - this prevents sending the message
+            } else {
+                // Recording long enough - proceed with sending
+                Log.d("MessageInput", "Recording duration OK (" + recordingDuration + "ms), sending message");
+                voiceRecordingListener.onStopRecording();
+            }
+            
+            Log.d("MessageInput", "Voice recording stopped with beep and vibration");
+        }
+    }
+    
+    private void showRecordingTooShortToast() {
+        Toast.makeText(getContext(), 
+                "Voice message too short! Hold for at least 1 second to record.", 
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void showSendButton() {
+        messageSendButton.setVisibility(VISIBLE);
+        voiceRecordButton.setVisibility(GONE);
+        // Update space reference to point to send button
+        updateSpaceReferences(true);
+    }
+
+    private void showVoiceButton() {
+        messageSendButton.setVisibility(GONE);
+        voiceRecordButton.setVisibility(VISIBLE);
+        // Update space reference to point to voice button
+        updateSpaceReferences(false);
+    }
+    
+    private void updateSpaceReferences(boolean showingSendButton) {
+        // With the new FrameLayout approach, we don't need complex space management
+        // Just ensure the layout is refreshed
+        if (messageInput != null) {
+            messageInput.requestLayout();
+        }
+        requestLayout();
+    }
+    
+    private void initializeSoundAndAnimation() {
+        try {
+            // Initialize vibrator for haptic feedback
+            vibrator = (Vibrator) getContext().getSystemService(Context.VIBRATOR_SERVICE);
+            Log.d("MessageInput", "Vibrator initialized: " + (vibrator != null));
+            
+            // Initialize tone generator for beep sounds
+            try {
+                toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100);
+                Log.d("MessageInput", "ToneGenerator initialized successfully");
+            } catch (RuntimeException e) {
+                Log.w("MessageInput", "ToneGenerator initialization failed, will try alternatives during playback", e);
+                toneGenerator = null;
+            }
+            
+            // Create pulsing animation - bigger scale so it's visible around finger
+            pulseAnimation = new ScaleAnimation(
+                1.0f, 1.5f,  // X scale from 100% to 150% (bigger for visibility)
+                1.0f, 1.5f,  // Y scale from 100% to 150% (bigger for visibility)
+                Animation.RELATIVE_TO_SELF, 0.5f,  // pivot X at center
+                Animation.RELATIVE_TO_SELF, 0.5f   // pivot Y at center
+            );
+            pulseAnimation.setDuration(600);  // Faster pulse (600ms instead of 800ms)
+            pulseAnimation.setRepeatCount(Animation.INFINITE);  // Repeat infinitely
+            pulseAnimation.setRepeatMode(Animation.REVERSE);  // Scale back and forth
+            
+        } catch (Exception e) {
+            Log.w("MessageInput", "Failed to initialize sound/animation", e);
+        }
+    }
+    
+    private void initializeBeepPlayer() {
+        // We'll create a programmatic beep using ToneGenerator instead
+        // This is a fallback method, but we'll keep ToneGenerator as primary
+        Log.d("MessageInput", "BeepPlayer fallback - will use ToneGenerator with different parameters");
+    }
+    
+    private void playBeepSound() {
+        Log.d("MessageInput", "playBeepSound called");
+        try {
+            if (toneGenerator != null) {
+                // Try different tones for better audibility
+                Log.d("MessageInput", "Playing beep with ToneGenerator");
+                boolean success = toneGenerator.startTone(ToneGenerator.TONE_PROP_PROMPT, 100);
+                if (!success) {
+                    // Try alternative tone
+                    success = toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 100);
+                    Log.d("MessageInput", "Alternative tone result: " + success);
+                }
+                Log.d("MessageInput", "ToneGenerator beep result: " + success);
+            } else {
+                // Create a new ToneGenerator if the original failed
+                Log.d("MessageInput", "Creating temporary ToneGenerator for beep");
+                try {
+                    ToneGenerator tempTone = new ToneGenerator(AudioManager.STREAM_SYSTEM, 100);
+                    tempTone.startTone(ToneGenerator.TONE_PROP_PROMPT, 100);
+                    // Release after a short delay
+                    new android.os.Handler().postDelayed(() -> {
+                        try {
+                            tempTone.release();
+                        } catch (Exception ignored) {}
+                    }, 200);
+                } catch (Exception e) {
+                    Log.w("MessageInput", "Temporary ToneGenerator failed", e);
+                }
+            }
+        } catch (Exception e) {
+            Log.w("MessageInput", "Failed to play beep sound", e);
+        }
+    }
+    
+    private void performHapticFeedback() {
+        Log.d("MessageInput", "performHapticFeedback called");
+        try {
+            if (vibrator != null && vibrator.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    // Modern vibration with VibrationEffect
+                    VibrationEffect effect = VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE);
+                    vibrator.vibrate(effect);
+                    Log.d("MessageInput", "Performed modern haptic feedback");
+                } else {
+                    // Legacy vibration
+                    vibrator.vibrate(50);
+                    Log.d("MessageInput", "Performed legacy haptic feedback");
+                }
+            } else {
+                Log.w("MessageInput", "Vibrator not available or no vibrator capability");
+            }
+        } catch (Exception e) {
+            Log.w("MessageInput", "Failed to perform haptic feedback", e);
+        }
+    }
+    
+    private void startRecordingAnimation() {
+        if (voiceRecordButton != null && pulseAnimation != null) {
+            voiceRecordButton.startAnimation(pulseAnimation);
+            Log.d("MessageInput", "Started recording animation");
+        }
+    }
+    
+    private void stopRecordingAnimation() {
+        if (voiceRecordButton != null) {
+            voiceRecordButton.clearAnimation();
+            Log.d("MessageInput", "Stopped recording animation");
+        }
+    }
+    
+    private void checkAndRequestPermissions() {
+        if (!checkRecordingPermission() && !permissionRequested) {
+            requestRecordingPermission();
+        }
+    }
+    
+    private boolean checkRecordingPermission() {
+        return ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECORD_AUDIO) 
+                == PackageManager.PERMISSION_GRANTED;
+    }
+    
+    private void requestRecordingPermission() {
+        Context context = getContext();
+        if (context instanceof Activity) {
+            permissionRequested = true;
+            ActivityCompat.requestPermissions((Activity) context,
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    PERMISSIONS_REQUEST_RECORD_AUDIO);
+            Log.d("MessageInput", "Requested RECORD_AUDIO permission");
+        } else {
+            Log.w("MessageInput", "Cannot request permission - context is not an Activity");
+            Toast.makeText(getContext(), "Voice recording requires microphone permission", Toast.LENGTH_SHORT).show();
+        }
+    }
+    
+    public void onPermissionResult(int requestCode, int[] grantResults) {
+        if (requestCode == PERMISSIONS_REQUEST_RECORD_AUDIO) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d("MessageInput", "RECORD_AUDIO permission granted");
+                Toast.makeText(getContext(), "Voice recording enabled", Toast.LENGTH_SHORT).show();
+            } else {
+                Log.w("MessageInput", "RECORD_AUDIO permission denied");
+                Toast.makeText(getContext(), "Voice recording requires microphone permission", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+    
+    private void cleanup() {
+        // Clean up resources
+        if (toneGenerator != null) {
+            toneGenerator.release();
+            toneGenerator = null;
+        }
+        if (beepPlayer != null) {
+            beepPlayer.release();
+            beepPlayer = null;
+        }
+        if (voiceRecordButton != null) {
+            voiceRecordButton.clearAnimation();
+        }
+        vibrator = null; // Don't need to release vibrator, just clear reference
     }
 
     private void init(Context context, AttributeSet attrs) {
@@ -229,15 +568,26 @@ public class MessageInput extends RelativeLayout
 
         messageInput = findViewById(R.id.messageInput);
         messageSendButton = findViewById(R.id.messageSendButton);
+        voiceRecordButton = findViewById(R.id.voiceRecordButton);
         attachmentButton = findViewById(R.id.attachmentButton);
         sendButtonSpace = findViewById(R.id.sendButtonSpace);
         attachmentButtonSpace = findViewById(R.id.attachmentButtonSpace);
 
         messageSendButton.setOnClickListener(this);
+        voiceRecordButton.setOnTouchListener(this);
         attachmentButton.setOnClickListener(this);
         messageInput.addTextChangedListener(this);
         messageInput.setText("");
         messageInput.setOnFocusChangeListener(this);
+        
+        // Set default microphone icon
+        voiceRecordButton.setImageResource(R.drawable.ic_mic);
+        
+        // Initialize sound and animation effects
+        initializeSoundAndAnimation();
+        
+        // Check and request permissions if needed
+        checkAndRequestPermissions();
     }
 
     private void setCursor(Drawable drawable) {
@@ -308,6 +658,23 @@ public class MessageInput extends RelativeLayout
          * Fires when user presses stop typing
          */
         void onStopTyping();
+
+    }
+
+    /**
+     * Interface definition for a callback to be invoked when user records voice
+     */
+    public interface VoiceRecordingListener {
+
+        /**
+         * Fires when user starts recording voice
+         */
+        void onStartRecording();
+
+        /**
+         * Fires when user stops recording voice
+         */
+        void onStopRecording();
 
     }
 }
