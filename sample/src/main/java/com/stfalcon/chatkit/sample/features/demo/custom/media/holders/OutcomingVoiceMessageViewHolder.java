@@ -72,9 +72,9 @@ public class OutcomingVoiceMessageViewHolder
     private void updatePlayButton() {
         if (playButton != null) {
             if (isPlaying) {
-                playButton.setImageResource(com.stfalcon.chatkit.R.drawable.ic_pause);
+                playButton.setImageResource(android.R.drawable.ic_media_pause);
             } else {
-                playButton.setImageResource(com.stfalcon.chatkit.R.drawable.ic_play);
+                playButton.setImageResource(android.R.drawable.ic_media_play);
             }
         }
     }
