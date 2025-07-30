@@ -16,9 +16,12 @@
 
 package com.stfalcon.chatkit.messages;
 
+import android.Manifest;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
+import android.app.Activity;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
@@ -41,6 +44,8 @@ import android.widget.RelativeLayout;
 import android.widget.Space;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import androidx.core.view.ViewCompat;
 
@@ -75,6 +80,10 @@ public class MessageInput extends RelativeLayout
     // Recording duration tracking
     private long recordingStartTime;
     private static final int MIN_RECORDING_DURATION_MS = 1000; // 1 second minimum
+    
+    // Permission handling
+    private static final int PERMISSIONS_REQUEST_RECORD_AUDIO = 1001;
+    private boolean permissionRequested = false;
     private boolean isTyping;
     private TypingListener typingListener;
     private int delayTypingStatusMillis;
@@ -261,6 +270,14 @@ public class MessageInput extends RelativeLayout
 
     private void startVoiceRecording() {
         Log.d("MessageInput", "startVoiceRecording called. Listener: " + (voiceRecordingListener != null) + ", isRecording: " + isRecordingVoice);
+        
+        // Check permissions first
+        if (!checkRecordingPermission()) {
+            Log.w("MessageInput", "Recording permission not granted, requesting...");
+            requestRecordingPermission();
+            return;
+        }
+        
         if (voiceRecordingListener != null && !isRecordingVoice) {
             isRecordingVoice = true;
             
@@ -451,6 +468,43 @@ public class MessageInput extends RelativeLayout
         }
     }
     
+    private void checkAndRequestPermissions() {
+        if (!checkRecordingPermission() && !permissionRequested) {
+            requestRecordingPermission();
+        }
+    }
+    
+    private boolean checkRecordingPermission() {
+        return ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECORD_AUDIO) 
+                == PackageManager.PERMISSION_GRANTED;
+    }
+    
+    private void requestRecordingPermission() {
+        Context context = getContext();
+        if (context instanceof Activity) {
+            permissionRequested = true;
+            ActivityCompat.requestPermissions((Activity) context,
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    PERMISSIONS_REQUEST_RECORD_AUDIO);
+            Log.d("MessageInput", "Requested RECORD_AUDIO permission");
+        } else {
+            Log.w("MessageInput", "Cannot request permission - context is not an Activity");
+            Toast.makeText(getContext(), "Voice recording requires microphone permission", Toast.LENGTH_SHORT).show();
+        }
+    }
+    
+    public void onPermissionResult(int requestCode, int[] grantResults) {
+        if (requestCode == PERMISSIONS_REQUEST_RECORD_AUDIO) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d("MessageInput", "RECORD_AUDIO permission granted");
+                Toast.makeText(getContext(), "Voice recording enabled", Toast.LENGTH_SHORT).show();
+            } else {
+                Log.w("MessageInput", "RECORD_AUDIO permission denied");
+                Toast.makeText(getContext(), "Voice recording requires microphone permission", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+    
     private void cleanup() {
         // Clean up resources
         if (toneGenerator != null) {
@@ -531,6 +585,9 @@ public class MessageInput extends RelativeLayout
         
         // Initialize sound and animation effects
         initializeSoundAndAnimation();
+        
+        // Check and request permissions if needed
+        checkAndRequestPermissions();
     }
 
     private void setCursor(Drawable drawable) {
